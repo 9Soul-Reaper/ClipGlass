@@ -1,4 +1,5 @@
-# ClipGlass
+# ClipGlass（本人的第一个项目，希望大家喜欢）
+<img width="32" height="32" alt="ClipGlass_icon" src="https://github.com/user-attachments/assets/b7ec907e-8601-4e2a-a771-da2a4cc5db3c" />
 
 <p align="center">
   <b>轻量 · 优雅 · 安全的 Windows 剪贴板管理工具</b><br>
