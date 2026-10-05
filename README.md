@@ -7,13 +7,14 @@
 
 ---
 
-注：展示效果看文件中提供的图片
-
 ✨ 简介
 
 ClipGlass 是一款使用 **Go 语言 + Win32 API 原生开发**的 Windows 剪贴板增强工具。它不依赖任何第三方 GUI 框架，编译产物仅为一个可执行文件，内存占用极低。
 
 它以一枚精致的**玻璃拟态（Glassmorphism）悬浮球**常驻桌面，点击悬浮球或按下自定义快捷键即可唤出主面板，快速浏览、搜索、复用历史剪贴板内容。无论是日常办公还是开发场景，都能让"复制粘贴"变得高效而优雅。
+
+<img width="491" height="654" alt="1" src="https://github.com/user-attachments/assets/fe4ce6e7-1747-4368-b143-f99f42ab839b" />
+
 
 🚀 核心特性
 
@@ -47,10 +48,12 @@ ClipGlass 是一款使用 **Go 语言 + Win32 API 原生开发**的 Windows 剪�
 - **排除规则**：忽略指定来源应用的复制内容
 - **密码锁**：为数据目录设置访问密码
 - **本地存储**：所有数据仅保存在本地 `%AppData%\ClipGlass`，不上传任何服务器
+<img width="486" height="646" alt="2" src="https://github.com/user-attachments/assets/4fba89cd-aa10-46ba-ad0f-6edcf2437042" />
 
 🌍 本地化
 - 支持 **14 种界面语言**：简体中文、English、繁體中文、日本語、한국어、Español、Français、Deutsch、Português、Русский、Italiano、Türkçe、Tiếng Việt、Bahasa Indonesia
 - 默认跟随系统语言，可手动切换
+<img width="491" height="654" alt="1" src="https://github.com/user-attachments/assets/6b4d2e3c-b3d3-4601-bddc-d204b2ccb9ca" />
 
 ⚙️ 丰富设置
 - **主题**：浅色 / 深色 / 跟随系统，多种强调色可选
@@ -59,6 +62,9 @@ ClipGlass 是一款使用 **Go 语言 + Win32 API 原生开发**的 Windows 剪�
 - **快捷键**：主面板快捷键、暂停快捷键，支持自定义录制
 - **面板位置**：屏幕中央 / 光标处 / 上次位置
 - **其他**：开机自启、导出/导入备份、数据目录一键打开、恢复默认
+
+  <img width="66" height="63" alt="4" src="https://github.com/user-attachments/assets/385f39e0-063e-46ee-b9fc-cd94109c961a" />
+
 
 📦 安装
 
