@@ -1,6 +1,7 @@
 # ClipGlass（本人的第一个项目，希望大家喜欢）
 
-<img width="256" height="256" alt="ClipGlass_icon_256" src="https://github.com/user-attachments/assets/bc258df1-5773-4ac8-82c0-3b905fe53a8a" />
+                                                       <img width="1024" height="1024" alt="ClipGlass_icon_hd" src="https://github.com/user-attachments/assets/daccd29d-3e09-4219-b69f-e34a23485f4f" />
+            
 
 
 <p align="center">
