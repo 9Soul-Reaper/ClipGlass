@@ -1,5 +1,3 @@
-ClipGlass
-
 <p align="center">
   <b>轻量 · 优雅 · 安全的 Windows 剪贴板管理工具</b><br>
   Go 原生开发 · 零依赖 · 单文件运行
@@ -21,7 +19,8 @@ ClipGlass 是一款使用 **Go 语言 + Win32 API 原生开发**的 Windows 剪�
 - 自动记录文本、图片等剪贴板内容，支持条数上限与保留时长设置
 - 内置搜索，快速定位历史条目
 - 支持置顶（Pin）、删除、忽略来源应用
-<img width="491" height="654" alt="image" src="https://github.com/user-attachments/assets/251b8948-ca9b-43ac-a377-67ffa57bd668" />
+<img width="483" height="646" alt="1" src="https://github.com/user-attachments/assets/bcb6f33c-7175-48d8-a525-124a4128093f" />
+
 
 🗂️ 自动类型识别
 自动识别并分类十余种内容类型，支持按类型筛选：
@@ -48,13 +47,15 @@ ClipGlass 是一款使用 **Go 语言 + Win32 API 原生开发**的 Windows 剪�
 - **排除规则**：忽略指定来源应用的复制内容
 - **密码锁**：为数据目录设置访问密码
 - **本地存储**：所有数据仅保存在本地 `%AppData%\ClipGlass`，不上传任何服务器
-  <img width="486" height="646" alt="image" src="https://github.com/user-attachments/assets/6875916c-da19-48b1-a315-d627720c4e4e" />
+<img width="489" height="646" alt="2" src="https://github.com/user-attachments/assets/f2d4db7a-3c71-4a05-84db-2d451392b8be" />
+
 
 
 🌍 本地化
 - 支持 **14 种界面语言**：简体中文、English、繁體中文、日本語、한국어、Español、Français、Deutsch、Português、Русский、Italiano、Türkçe、Tiếng Việt、Bahasa Indonesia
 - 默认跟随系统语言，可手动切换
-<img width="491" height="654" alt="image" src="https://github.com/user-attachments/assets/68a3cbd6-8625-4824-8efe-b645e0754905" />
+<img width="490" height="646" alt="3" src="https://github.com/user-attachments/assets/8339e2d7-da70-4227-92b0-6e5f9ba24d8e" />
+
 
 ⚙️ 丰富设置
 - **主题**：浅色 / 深色 / 跟随系统，多种强调色可选
@@ -93,7 +94,8 @@ go build -ldflags="-H windowsgui"
 4. **隐藏启动**：使用 `ClipGlass.exe --tray` 参数可后台静默启动
 5. **托盘菜单**：右键托盘图标可显示面板、暂停监听、清空记录或退出
 6. **单实例**：重复启动时会自动唤起已运行的实例
-<img width="66" height="63" alt="image" src="https://github.com/user-attachments/assets/d20e54e0-6697-4bb6-824f-1f3bc88d08f6" />
+<img width="66" height="71" alt="屏幕截图 2026-10-06 144909" src="https://github.com/user-attachments/assets/a0be394d-8bb3-4d0d-b01b-1ace4e14ce46" />
+
 
 📁 数据目录
 
