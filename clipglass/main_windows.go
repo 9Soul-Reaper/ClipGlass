@@ -53,6 +53,8 @@ const (
 	menuFolder = 1004
 	menuClear  = 1005
 	menuExit   = 1006
+	menuBall   = 1007
+	menuPin    = 1008
 
 	mPaste   = 2001
 	mCopy    = 2002
@@ -75,7 +77,7 @@ const (
 	langBase = 3000
 
 	className = "ClipGlassWnd"
-	appVer    = "1.4"
+	appVer    = "1.6"
 	appTitle  = "ClipGlass " + appVer
 	runKey    = `Software\Microsoft\Windows\CurrentVersion\Run`
 )
@@ -107,38 +109,39 @@ var (
 )
 
 type App struct {
-	hwnd, hinst uintptr
-	dir         string
-	store       *Store
-	set         *Settings
-	ui          *UI
-	memDC       uintptr
-	dib         uintptr
-	canvas      *Canvas
-	base        *Canvas
-	mask        []byte
-	text        *gdiText
-	snap        *Canvas
-	prevFg      uintptr
-	visible     bool
-	alpha       byte
-	fading      bool
-	fadeStart   time.Time
-	shownAt     time.Time
-	hiddenAt    time.Time
-	animOn      bool
-	tracking    bool
-	menuOpen    bool
-	fromBall    bool
-	pressed     Hit
-	taskbarMsg  uint32
-	hkOK        [3]bool
-	icon        uintptr
-	highSur     rune
-	saveTicks   int
-	dpiScale    float64
-	sysLang     string
-	firstRun    bool
+	hwnd, hinst  uintptr
+	dir          string
+	store        *Store
+	set          *Settings
+	ui           *UI
+	memDC        uintptr
+	dib          uintptr
+	canvas       *Canvas
+	base         *Canvas
+	mask         []byte
+	text         *gdiText
+	snap         *Canvas
+	prevFg       uintptr
+	visible      bool
+	alpha        byte
+	fading       bool
+	fadeStart    time.Time
+	shownAt      time.Time
+	hiddenAt     time.Time
+	animOn       bool
+	tracking     bool
+	menuOpen     bool
+	restoreUntil time.Time
+	fromBall     bool
+	pressed      Hit
+	taskbarMsg   uint32
+	hkOK         [3]bool
+	icon         uintptr
+	highSur      rune
+	saveTicks    int
+	dpiScale     float64
+	sysLang      string
+	firstRun     bool
 }
 
 var app = &App{}
@@ -182,6 +185,7 @@ func main() {
 	a.firstRun = err != nil
 	a.set = LoadSettings(a.dir)
 	a.store = LoadStore(a.dir)
+	a.store.Encrypt = a.set.Encrypt
 	a.store.Prune(a.set)
 	if a.firstRun {
 		a.set.Save(a.dir)
@@ -621,7 +625,11 @@ func (a *App) show() {
 	call(pShowWindow, a.hwnd, 8) // SW_SHOWNA
 	a.forceForeground()
 
-	if a.firstRun {
+	if a.set.AutoPasteNote == 1 {
+		a.set.AutoPasteNote = 2
+		a.set.Save(a.dir)
+		a.ui.ToastFor(T("t.autopaste"), 5*time.Second)
+	} else if a.firstRun {
 		a.firstRun = false
 		a.ui.Toast(Tf("t.first", a.set.Hotkey.String()))
 	} else if !a.hkOK[1] && a.set.Hotkey.IsSet() {
@@ -798,6 +806,16 @@ func (a *App) onSetting(id int) {
 		a.updateBall()
 	case SetBall:
 		a.syncBall()
+	case SetEncrypt:
+		a.store.Encrypt = a.set.Encrypt
+		a.store.Reseal()
+	case SetBackup:
+		if name, err := a.store.ExportBackup(a.set); err == nil {
+			shellOpen("explorer.exe", `/select,"`+name+`"`)
+			a.ui.Toast(T("t.backup"))
+		}
+	case SetRestore:
+		a.restore()
 	case SetAutoStart:
 		setAutoStart(a.set.AutoStart)
 	case SetScale:
@@ -816,6 +834,28 @@ func (a *App) onSetting(id int) {
 	}
 	a.set.Save(a.dir)
 	a.ui.Dirty = true
+}
+
+// restore 两步确认:先预览将导入的条目数,再点一次才合并导入。
+func (a *App) restore() {
+	if time.Now().Before(a.restoreUntil) {
+		a.restoreUntil = time.Time{}
+		n, err := a.store.ApplyImport()
+		if err != nil {
+			a.ui.Toast(T("t.restore.none"))
+			return
+		}
+		a.ui.Rebuild()
+		a.ui.Toast(Tf("t.restore.done", n))
+		return
+	}
+	n, err := a.store.PreviewImport()
+	if err != nil {
+		a.ui.Toast(T("t.restore.none"))
+		return
+	}
+	a.restoreUntil = time.Now().Add(8 * time.Second)
+	a.ui.ToastFor(Tf("t.restore.ask", n), 8*time.Second)
 }
 
 func (a *App) applyScale() {
@@ -953,7 +993,8 @@ func (a *App) onClipboard() {
 		if a.set.Sensitive != 2 {
 			reason = secretReason(text)
 			if reason != "" && a.set.Sensitive == 0 {
-				return // 跳过:完全不记录
+				a.store.RemoveText(text) // 跳过:不记录,并清掉历史里已有的同内容明文
+				return
 			}
 		}
 		a.store.AddFrom(text, src, exe, reason)
@@ -1131,17 +1172,17 @@ func (a *App) doAction(it *Item, op int) {
 		}
 		ok = setClipboardText(a.hwnd, text)
 	}
-	if ok && text == it.Text {
-		a.store.Bump(it)
-	}
 	if op == OpCopy {
-		// 仅复制:窗口保持打开,给出提示
+		// 仅复制:窗口保持打开,列表顺序不变,闪一下并提示
 		if ok {
+			a.ui.Flash(it.ID)
 			a.ui.Toast(T("t.copied"))
 		}
-		a.ui.Rebuild()
-		a.render()
+		a.afterInput()
 		return
+	}
+	if ok && text == it.Text {
+		a.store.Bump(it)
 	}
 	prev := a.prevFg
 	if !a.set.KeepOpen {
@@ -1164,6 +1205,10 @@ func (a *App) doAction(it *Item, op int) {
 	call(pKeybdEvent, 'V', 0, 0, 0)
 	call(pKeybdEvent, 'V', 0, 2, 0)
 	call(pKeybdEvent, 0x11, 0, 2, 0)
+	if a.set.AutoPasteNote == 0 {
+		a.set.AutoPasteNote = 1 // 下次打开时一次性提示“已自动粘贴,可关闭”
+		a.set.Save(a.dir)
+	}
 }
 
 // ---------- 弹出菜单(界面内玻璃菜单,跟随主题) ----------
@@ -1385,6 +1430,8 @@ func (a *App) trayMenu() {
 	appendMenu(m, 0, menuShow, show)
 	appendMenu(m, chk(a.set.Paused), menuPause, T("tray.pause"))
 	appendMenu(m, chk(a.set.AutoStart), menuAuto, T("r.autostart"))
+	appendMenu(m, chk(a.set.Ball), menuBall, T("r.ball"))
+	appendMenu(m, chk(a.set.KeepOpen), menuPin, T("r.keepopen"))
 	appendMenu(m, mfSep, 0, "")
 	appendMenu(m, 0, menuFolder, T("r.folder"))
 	appendMenu(m, 0, menuClear, T("tray.clear"))
@@ -1409,6 +1456,13 @@ func (a *App) onMenu(id int) {
 	case menuAuto:
 		a.set.AutoStart = !a.set.AutoStart
 		setAutoStart(a.set.AutoStart)
+		a.set.Save(a.dir)
+	case menuBall:
+		a.set.Ball = !a.set.Ball
+		a.syncBall()
+		a.set.Save(a.dir)
+	case menuPin:
+		a.set.KeepOpen = !a.set.KeepOpen
 		a.set.Save(a.dir)
 	case menuFolder:
 		shellOpen(a.dir, "")

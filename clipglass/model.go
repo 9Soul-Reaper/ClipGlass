@@ -403,7 +403,10 @@ type Settings struct {
 	PosSet        bool       `json:"posSet"`
 	Paused        bool       `json:"paused"`
 	IgnoreSources []string   `json:"ignoreSources"`
-	Opacity       int        `json:"opacity"` // 玻璃浓度 0 通透 1 均衡 2 清晰
+	ClickMode     int        `json:"clickMode"` // 0 点击=复制(窗口保持) 1 点击=粘贴并关闭
+	Encrypt       bool       `json:"encrypt"`
+	AutoPasteNote int        `json:"autoPasteNote"` // 0 未粘贴过 1 待提示 2 已提示
+	Opacity       int        `json:"opacity"`       // 玻璃浓度 0 通透 1 均衡 2 清晰
 	KeepOpen      bool       `json:"keepOpen"`
 	Ball          bool       `json:"ball"`
 	BallX         int        `json:"ballX"`
@@ -438,11 +441,14 @@ func indexOf(vals []int, v int) int {
 // ---------- 存储 ----------
 
 type Store struct {
-	Items  []*Item // 最新在前
-	Groups []Group
-	Dir    string
-	nextID int64
-	dirty  bool
+	Items     []*Item // 最新在前
+	Groups    []Group
+	Dir       string
+	Encrypt   bool // 静态加密(DPAPI)
+	Recovered bool // 启动时从备份恢复过
+	purgeBak  bool
+	nextID    int64
+	dirty     bool
 }
 
 const secretTTL = 10 * 60 // 敏感内容在内存中保留的秒数
@@ -469,6 +475,7 @@ func LoadSettings(dir string) *Settings {
 	s.PosMode = clampi(s.PosMode, 0, 2)
 	s.Sensitive = clampi(s.Sensitive, 0, 2)
 	s.Opacity = clampi(s.Opacity, 0, 2)
+	s.ClickMode = clampi(s.ClickMode, 0, 1)
 	if s.MaxItems <= 0 {
 		s.MaxItems = 500
 	}
@@ -490,9 +497,7 @@ func atomicWrite(path string, b []byte) {
 
 func LoadStore(dir string) *Store {
 	st := &Store{Dir: dir, nextID: time.Now().UnixNano()}
-	if b, err := os.ReadFile(filepath.Join(dir, "history.json")); err == nil {
-		_ = json.Unmarshal(b, &st.Items)
-	}
+	st.loadHistory()
 	for _, it := range st.Items {
 		it.prepare()
 	}
@@ -507,7 +512,7 @@ func (s *Store) saveGroups() {
 		return
 	}
 	if b, err := json.Marshal(s.Groups); err == nil {
-		atomicWrite(filepath.Join(s.Dir, "groups.json"), b)
+		writeWithBackup(filepath.Join(s.Dir, "groups.json"), b)
 	}
 }
 
@@ -587,18 +592,20 @@ func (s *Store) CountKind(k Kind) int {
 }
 
 func (s *Store) Save() {
-	if !s.dirty {
+	if !s.dirty || s.Dir == "" {
 		return
 	}
-	disk := make([]*Item, 0, len(s.Items))
-	for _, it := range s.Items {
-		if !it.Mem { // 敏感内容永不落盘
-			disk = append(disk, it)
-		}
+	b, err := s.marshalHistory()
+	if err != nil {
+		return
 	}
-	if b, err := json.Marshal(disk); err == nil {
-		atomicWrite(filepath.Join(s.Dir, "history.json"), b)
+	path := filepath.Join(s.Dir, "history.json")
+	if writeWithBackup(path, s.seal(b)) {
 		s.dirty = false
+		if s.purgeBak { // 删除 / 识别为敏感后,不再保留含旧明文的备份
+			_ = os.Remove(path + ".bak")
+			s.purgeBak = false
+		}
 	}
 }
 
@@ -622,6 +629,14 @@ func (s *Store) Add(text, source string) *Item { return s.AddFrom(text, source, 
 func (s *Store) AddFrom(text, source, exe, reason string) *Item {
 	for i, it := range s.Items {
 		if it.Kind != KImage && it.Text == text {
+			// 去重命中时也要按本次的敏感判定更新:转为敏感则改为仅内存并清掉磁盘明文
+			if reason != "" && !it.Mem {
+				it.Kind, it.Mem, it.Reason = KSecret, true, reason
+				s.purgeBak = true
+			} else if reason == "" && it.Mem {
+				it.Mem, it.Reason = false, ""
+				it.Kind = classify(text)
+			}
 			it.Time = time.Now().Unix()
 			it.Uses++
 			if source != "" {
@@ -664,10 +679,10 @@ func (s *Store) AddImage(img *image.NRGBA, source, exe string) *Item {
 	}
 	_ = os.MkdirAll(filepath.Join(s.Dir, "images"), 0o755)
 	data := encodePNG(img)
-	if data == nil || os.WriteFile(s.imgPath(hash), data, 0o644) != nil {
+	if data == nil || s.writeBlob(s.imgPath(hash), data) != nil {
 		return nil
 	}
-	_ = os.WriteFile(s.thumbPath(hash), encodePNG(coverThumb(img, 96)), 0o644)
+	_ = s.writeBlob(s.thumbPath(hash), encodePNG(coverThumb(img, 96)))
 	s.nextID++
 	it := &Item{ID: s.nextID, Kind: KImage, Time: time.Now().Unix(), Source: source, Exe: exe, Img: hash, W: img.Bounds().Dx(), H: img.Bounds().Dy()}
 	it.prepare()
@@ -681,7 +696,7 @@ func (s *Store) Thumb(it *Item) *Canvas {
 	if it.thumb != nil || it.thumbFail || it.Kind != KImage {
 		return it.thumb
 	}
-	b, err := os.ReadFile(s.thumbPath(it.Img))
+	b, err := s.readBlob(s.thumbPath(it.Img))
 	if err == nil {
 		if im, err := png.Decode(bytes.NewReader(b)); err == nil {
 			n := image.NewNRGBA(im.Bounds())
@@ -702,7 +717,7 @@ func (s *Store) Thumb(it *Item) *Canvas {
 
 // LoadImage 读取原图。
 func (s *Store) LoadImage(it *Item) *image.NRGBA {
-	b, err := os.ReadFile(s.imgPath(it.Img))
+	b, err := s.readBlob(s.imgPath(it.Img))
 	if err != nil {
 		return nil
 	}
@@ -733,7 +748,7 @@ func (s *Store) Delete(id int64) {
 		if it.ID == id {
 			s.removeFiles(it)
 			s.Items = append(s.Items[:i], s.Items[i+1:]...)
-			s.dirty = true
+			s.dirty, s.purgeBak = true, true
 			return
 		}
 	}
@@ -759,7 +774,7 @@ func (s *Store) ClearUnpinned() {
 		}
 	}
 	s.Items = keep
-	s.dirty = true
+	s.dirty, s.purgeBak = true, true
 }
 
 func (s *Store) Prune(set *Settings) {
@@ -785,7 +800,7 @@ func (s *Store) Prune(set *Settings) {
 	}
 	if len(keep) != len(s.Items) {
 		s.Items = keep
-		s.dirty = true
+		s.dirty, s.purgeBak = true, true
 	}
 }
 

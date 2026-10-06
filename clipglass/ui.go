@@ -57,6 +57,7 @@ const (
 	ActPopPanel
 	ActPopItem
 	ActKeep
+	ActBall
 )
 
 // 对条目的操作
@@ -100,6 +101,10 @@ const (
 	SetOpacity
 	SetKeepOpen
 	SetBall
+	SetClickMode
+	SetEncrypt
+	SetBackup
+	SetRestore
 )
 
 // 主题色板:{深色模式, 浅色模式}
@@ -130,6 +135,12 @@ type Popup struct {
 
 type UI struct {
 	Pop *Popup
+
+	selPos  float64 // 选中高亮的动画位置(卡片序号)
+	flashID int64
+	flashAt time.Time
+	popAt   time.Time
+	toastAt time.Time
 
 	S          float64
 	Dark       bool
@@ -222,6 +233,7 @@ func (u *UI) OpenPopup(items []PopItem, onPick func(id int)) {
 		}
 	}
 	u.Pop = p
+	u.popAt = time.Now()
 	u.Hover = Hit{}
 	u.Dirty = true
 }
@@ -270,6 +282,7 @@ func (u *UI) Reset() {
 	u.Naming, u.Name = 0, nil
 	u.ChipScroll = 0
 	u.Sel = 0
+	u.selPos = 0
 	u.Scroll, u.ScrollTo = 0, 0
 	u.SettingsOn = false
 	u.Hover = Hit{}
@@ -293,12 +306,35 @@ func (u *UI) Rebuild() {
 		}
 	}
 	u.clampScroll()
+	if u.selPos > float64(len(u.View)) {
+		u.selPos = float64(u.Sel)
+	}
 	u.Dirty = true
 }
 
 func (u *UI) Toast(s string) { u.ToastFor(s, 1500*time.Millisecond) }
 
+// primaryOp 是点击条目 / 按 Enter 的默认动作,由设置决定。
+func (u *UI) primaryOp() int {
+	if u.Set.ClickMode == 1 {
+		return OpPaste
+	}
+	return OpCopy
+}
+
+// Flash 让某条卡片闪一下,作为“已复制”的反馈。
+func (u *UI) Flash(id int64) {
+	u.flashID, u.flashAt = id, time.Now()
+	u.Dirty = true
+}
+
+func easeOut(t float64) float64 {
+	t = clamp01(t)
+	return 1 - (1-t)*(1-t)*(1-t)
+}
+
 func (u *UI) ToastFor(s string, d time.Duration) {
+	u.toastAt = time.Now()
 	u.toast = s
 	u.toastEnd = time.Now().Add(d)
 	u.Dirty = true
@@ -367,6 +403,33 @@ func (u *UI) Tick() bool {
 		active = true
 		u.Dirty = true
 	}
+	if !u.SettingsOn && len(u.View) > 0 {
+		d := float64(u.Sel) - u.selPos
+		if math.Abs(d) > 0.004 {
+			u.selPos += d * 0.34
+			active = true
+			u.Dirty = true
+		} else if u.selPos != float64(u.Sel) {
+			u.selPos = float64(u.Sel)
+			u.Dirty = true
+		}
+	}
+	if !u.flashAt.IsZero() {
+		if time.Since(u.flashAt) < 650*time.Millisecond {
+			active = true
+			u.Dirty = true
+		} else {
+			u.flashAt = time.Time{}
+			u.Dirty = true
+		}
+	}
+	if u.Pop != nil && time.Since(u.popAt) < 180*time.Millisecond {
+		active = true
+		u.Dirty = true
+	}
+	if u.toast != "" && time.Since(u.toastAt) < 220*time.Millisecond {
+		u.Dirty = true
+	}
 	if u.toast != "" {
 		if time.Now().After(u.toastEnd) {
 			u.toast = ""
@@ -380,7 +443,8 @@ func (u *UI) Tick() bool {
 
 // Animating 供宿主判断是否需要启动动画定时器。
 func (u *UI) Animating() bool {
-	return u.entering || u.toast != "" || u.Scroll != u.ScrollTo
+	return u.entering || u.toast != "" || u.Scroll != u.ScrollTo || (!u.SettingsOn && u.selPos != float64(u.Sel)) ||
+		!u.flashAt.IsZero() || (u.Pop != nil && time.Since(u.popAt) < 180*time.Millisecond)
 }
 
 // ---------- 输入 ----------
@@ -496,9 +560,12 @@ func (u *UI) Click(h Hit, right bool) {
 			if right {
 				u.OnContext(u.View[h.Arg])
 			} else {
-				u.OnAction(u.View[h.Arg], OpPaste)
+				u.OnAction(u.View[h.Arg], u.primaryOp())
 			}
 		}
+	case ActBall:
+		u.Set.Ball = !u.Set.Ball
+		u.fireSetting(SetBall)
 	case ActCopy:
 		if h.Arg >= 0 && h.Arg < len(u.View) {
 			u.OnAction(u.View[h.Arg], OpCopy)
@@ -522,6 +589,7 @@ func (u *UI) SetFilter(f int) {
 	u.chipEnsure = true
 	u.Scroll, u.ScrollTo = 0, 0
 	u.Sel = 0
+	u.selPos = 0
 	u.Rebuild()
 }
 
@@ -668,6 +736,10 @@ func (u *UI) applySetting(id int) {
 		s.KeepOpen = !s.KeepOpen
 	case SetBall:
 		s.Ball = !s.Ball
+	case SetClickMode:
+		s.ClickMode = 1 - s.ClickMode
+	case SetEncrypt:
+		s.Encrypt = !s.Encrypt
 	case SetSensitive:
 		s.Sensitive = (s.Sensitive + 1) % 3
 	case SetIgnorePwd:
@@ -799,6 +871,7 @@ func (u *UI) Backspace() {
 
 func (u *UI) queryChanged() {
 	u.Sel = 0
+	u.selPos = 0
 	u.Scroll, u.ScrollTo = 0, 0
 	u.View = u.Store.View(u.Filter, string(u.Query))
 	u.Dirty = true
@@ -886,9 +959,9 @@ func (u *UI) Key(vk int, ctrl, shift, alt bool) bool {
 		return true
 	case 0x0D: // Enter:Ctrl=仅复制 Shift=单行纯文本
 		if !u.SettingsOn && u.Sel < len(u.View) {
-			op := OpPaste
+			op := u.primaryOp()
 			if ctrl {
-				op = OpCopy
+				op = OpCopy + OpPaste - op // 与默认动作相反
 			} else if shift {
 				op = OpPlain
 			}
@@ -975,12 +1048,12 @@ type Pal struct {
 
 func (u *UI) pal() Pal {
 	if u.Dark {
-		return Pal{Dark: true, Text: Color{238, 241, 248}, Sub: Color{152, 162, 186}, Accent: u.accent(),
-			Warn: Color{255, 170, 70}, Gold: Color{255, 200, 70},
-			CardA: 0.07, CardHoverA: 0.13, CardCol: Color{255, 255, 255},
+		return Pal{Dark: true, Text: Color{248, 250, 255}, Sub: Color{190, 199, 220}, Accent: u.accent(),
+			Warn: Color{255, 184, 92}, Gold: Color{255, 208, 84},
+			CardA: 0.26, CardHoverA: 0.38, CardCol: Color{8, 10, 18},
 			ChipCol: Color{255, 255, 255}, ChipA: 0.09, BorderCol: Color{255, 255, 255}, BorderA: 0.10, Gloss: 0.10}
 	}
-	return Pal{Text: Color{22, 26, 38}, Sub: Color{92, 102, 124}, Accent: u.accent(),
+	return Pal{Text: Color{14, 18, 30}, Sub: Color{66, 76, 100}, Accent: u.accent(),
 		Warn: Color{214, 120, 10}, Gold: Color{232, 160, 0},
 		CardA: 0.52, CardHoverA: 0.78, CardCol: Color{255, 255, 255},
 		ChipCol: Color{0, 0, 0}, ChipA: 0.06, BorderCol: Color{0, 0, 0}, BorderA: 0.07, Gloss: 0.7}
@@ -1005,7 +1078,15 @@ func (u *UI) BuildBase(snapshot *Canvas) (*Canvas, []byte) {
 		if !u.Dark {
 			ta -= 0.04
 		}
-		ta = math.Min(ta, 0.95)
+		// 自适应对比度:背景越亮(深色模式)/越暗(浅色模式),就自动加浓一点,保证所有文字清晰
+		if l := meanLuma(inner); u.Dark {
+			if need := (l - 0.20) / math.Max(l-0.06, 0.05); need > ta {
+				ta = need
+			}
+		} else if need := (0.80 - l) / math.Max(0.96-l, 0.05); need > ta {
+			ta = need
+		}
+		ta = math.Min(ta, 0.93)
 		tintAndSaturate(inner, tint, ta, 1.35, 2)
 	} else {
 		inner = NewCanvas(in.W, in.H)
@@ -1046,6 +1127,19 @@ func (u *UI) BuildBase(snapshot *Canvas) (*Canvas, []byte) {
 }
 
 // ---------- 绘制 ----------
+
+// meanLuma 估计画布的平均亮度(0..1)。
+func meanLuma(c *Canvas) float64 {
+	sum, n := 0.0, 0
+	for i := 0; i+3 < len(c.Pix); i += 4 * 7 {
+		sum += 0.2126*float64(c.Pix[i+2]) + 0.7152*float64(c.Pix[i+1]) + 0.0722*float64(c.Pix[i])
+		n++
+	}
+	if n == 0 {
+		return 0.5
+	}
+	return sum / float64(n) / 255
+}
 
 func (u *UI) addHit(r Rect, act, arg int) {
 	r = r.Intersect(u.hitClip)
@@ -1162,6 +1256,25 @@ func (u *UI) Draw(c *Canvas, t TextRenderer) {
 		// 图钉:圆头 + 针
 		u.drawPin(c, kcx, kcy, kc, 0.95)
 		u.addHit(kr, ActKeep, 0)
+		// 悬浮球开关
+		br := R(closeX-8-sw-8-pw-8-28-8-28, 14, 28, 28)
+		bcx, bcy := float64(br.X)+float64(br.W)/2, float64(br.Y)+float64(br.H)/2
+		if u.Set.Ball {
+			c.FillCircle(bcx, bcy, float64(br.W)/2, p.Accent, 0.95)
+		} else {
+			ba := p.ChipA
+			if u.Hover.Act == ActBall {
+				ba *= 2.2
+			}
+			c.FillCircle(bcx, bcy, float64(br.W)/2, p.ChipCol, ba)
+		}
+		bc := p.Sub
+		if u.Set.Ball {
+			bc = Color{255, 255, 255}
+		}
+		c.StrokeCircle(bcx, bcy, u.fpx(6.5), u.fpx(1.6), bc, 0.95)
+		c.FillCircle(bcx, bcy, u.fpx(2.4), bc, 0.95)
+		u.addHit(br, ActBall, 0)
 	}
 
 	if !u.SettingsOn {
@@ -1318,7 +1431,7 @@ func (u *UI) Draw(c *Canvas, t TextRenderer) {
 	if u.toast != "" {
 		st := u.fitStyle(t, u.toast, u.px(designW-80), 13, false)
 		w := float64(t.Measure(u.toast, st))/S + 36
-		r := R((designW-w)/2, designH-footerH-48, w, 32)
+		r := R((designW-w)/2, designH-footerH-48+(1-easeOut(time.Since(u.toastAt).Seconds()/0.2))*12, w, 32)
 		c.FillRRect(float64(r.X)+1, float64(r.Y)+u.fpx(2), float64(r.W), float64(r.H), float64(r.H)/2, Color{0, 0, 0}, 0.18)
 		c.FillRRect(float64(r.X), float64(r.Y), float64(r.W), float64(r.H), float64(r.H)/2, Color{28, 32, 44}, 0.94)
 		t.Draw(u.toast, r, st, Color{245, 247, 252}, AlignCenter, 1)
@@ -1336,6 +1449,7 @@ func (u *UI) drawPopup(c *Canvas, t TextRenderer, p Pal, in Rect, R func(x, y, w
 	if u.Dark {
 		scrim = 0.34
 	}
+	scrim *= easeOut(time.Since(u.popAt).Seconds() / 0.16)
 	c.FillRRect(float64(in.X), float64(in.Y), float64(in.W), float64(in.H), u.fpx(panelRadius), Color{0, 0, 0}, scrim)
 	u.addHit(in, ActPopBack, 0)
 
@@ -1369,6 +1483,8 @@ func (u *UI) drawPopup(c *Canvas, t TextRenderer, p Pal, in Rect, R func(x, y, w
 	ax, ay := float64(pp.AX-in.X)/S, float64(pp.AY-in.Y)/S
 	x := math.Max(12, math.Min(ax-10, designW-12-w))
 	y := math.Max(12, math.Min(ay-6, designH-12-h))
+	pe := easeOut(time.Since(u.popAt).Seconds() / 0.16)
+	y += (1 - pe) * 10
 	pr := R(x, y, w, h)
 	fr := func(v float64) float64 { return v * S }
 	c.FillRRect(float64(pr.X), float64(pr.Y)+fr(5), float64(pr.W), float64(pr.H), fr(16), Color{0, 0, 0}, 0.30)
@@ -1500,7 +1616,7 @@ func (u *UI) drawList(c *Canvas, t TextRenderer, p Pal, in Rect, now time.Time,
 		ch := u.fpx(chDIP)
 		card := Rect{int(cx), int(cy), int(cw), int(ch)}
 		hovering := isItemAct(u.Hover.Act) && u.Hover.Arg == i
-		selected := i == u.Sel
+		selected := math.Abs(float64(i)-u.selPos) < 0.5
 
 		a := p.CardA
 		if hovering || selected {
@@ -1509,12 +1625,14 @@ func (u *UI) drawList(c *Canvas, t TextRenderer, p Pal, in Rect, now time.Time,
 		rad := u.fpx(15)
 		c.FillRRect(cx, cy, cw, ch, rad, p.CardCol, a)
 		c.Line(cx+rad, cy+u.fpx(1.2), cx+cw-rad, cy+u.fpx(1.2), u.fpx(1), Color{255, 255, 255}, p.Gloss*0.5)
-		if selected {
-			c.FillRRect(cx, cy, cw, ch, rad, p.Accent, 0.12)
-			c.StrokeRRect(cx, cy, cw, ch, rad, u.fpx(1.3), p.Accent, 0.7)
-			c.FillRRect(cx+u.fpx(4), cy+ch*0.24, u.fpx(3), ch*0.52, u.fpx(1.5), p.Accent, 1)
-		} else {
+		if !selected {
 			c.StrokeRRect(cx, cy, cw, ch, rad, u.fpx(1), p.BorderCol, p.BorderA)
+		}
+		if it.ID == u.flashID && !u.flashAt.IsZero() {
+			ft := time.Since(u.flashAt).Seconds() / 0.65
+			if ft < 1 {
+				c.FillRRect(cx, cy, cw, ch, rad, Color{52, 199, 140}, 0.34*(1-ft)*(1-ft))
+			}
 		}
 		u.addHit(card, ActItem, i)
 
@@ -1645,6 +1763,14 @@ func (u *UI) drawList(c *Canvas, t TextRenderer, p Pal, in Rect, now time.Time,
 			}
 		}
 	}
+	// 选中高亮:独立绘制并平滑滑动
+	if len(u.View) > 0 {
+		hy := top0 + u.selPos*step - u.Scroll
+		hx, hw, hh, hr := fx(16), u.fpx(designW-32), u.fpx(chDIP), u.fpx(15)
+		c.FillRRect(hx, hy, hw, hh, hr, p.Accent, 0.12)
+		c.StrokeRRect(hx, hy, hw, hh, hr, u.fpx(1.3), p.Accent, 0.7)
+		c.FillRRect(hx+u.fpx(4), hy+hh*0.24, u.fpx(3), hh*0.52, u.fpx(1.5), p.Accent, 1)
+	}
 }
 
 // ---------- 设置页 ----------
@@ -1698,6 +1824,7 @@ func (u *UI) rows() []srow {
 		{rPill, SetLang, T("r.lang"), T("r.lang.d"), langDisp, false, false},
 		{rHotkey, SetHotkey, T("r.hotkey"), T("r.hotkey.d"), hk(s.Hotkey, SetHotkey), false, false},
 		{rHotkey, SetPauseKey, T("r.pausekey"), T("r.pausekey.d"), hk(s.PauseKey, SetPauseKey), false, false},
+		{rPill, SetClickMode, T("r.click"), T("r.click.d"), T("click." + itoa(clampi(s.ClickMode, 0, 1))), false, false},
 		{rPill, SetPos, T("r.pos"), T("r.pos.d"), pos, false, false},
 		{rSwitch, SetAutoPaste, T("r.autopaste"), T("r.autopaste.d"), "", s.AutoPaste, false},
 		{rSwitch, SetAutoStart, T("r.autostart"), T("r.autostart.d"), "", s.AutoStart, false},
@@ -1718,11 +1845,14 @@ func (u *UI) rows() []srow {
 		{rPill, SetSensitive, T("r.sensitive"), T("r.sensitive.d"), T([]string{"sens.skip", "sens.keep", "sens.off"}[clampi(s.Sensitive, 0, 2)]), false, false},
 		{rSwitch, SetIgnorePwd, T("r.pwd"), T("r.pwd.d"), "", s.IgnorePwd, false},
 		{rButton, SetIgnoreList, T("r.ignore") + " (" + itoa(len(s.IgnoreSources)) + ")", T("r.ignore.d"), T("b.reset"), false, false},
+		{rSwitch, SetEncrypt, T("r.encrypt"), T("r.encrypt.d"), "", s.Encrypt, false},
 		{rSwitch, SetImages, T("r.images"), T("r.images.d"), "", s.RecordImages, false},
 		{rPill, SetRetention, T("r.keep"), T("r.keep.d"), T("keep." + itoa(s.Retention)), false, false},
 		{rPill, SetMaxItems, T("r.max"), T("r.max.d"), Tf("n.items", s.MaxItems), false, false},
 		{rButton, SetOpenFolder, T("r.folder"), T("r.folder.d"), T("b.open"), false, false},
 		{rButton, SetExport, T("r.export"), T("r.export.d"), T("b.export"), false, false},
+		{rButton, SetBackup, T("r.backup"), T("r.backup.d"), T("b.export"), false, false},
+		{rButton, SetRestore, T("r.restore"), T("r.restore.d"), T("b.import"), false, false},
 		{rButton, SetClearAll, T("r.clear"), clearDesc, T("b.clear"), false, true},
 	}
 }

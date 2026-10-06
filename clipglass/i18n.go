@@ -200,7 +200,7 @@ var strs = map[string][5]string{
 	"r.clear.c":     {"再点一次确认,此操作不可撤销", "Click again to confirm — can't be undone", "再點一次確認,此操作無法復原", "もう一度クリックで確定(元に戻せません)", "한 번 더 누르면 삭제됩니다(되돌릴 수 없음)"},
 	"b.clear":       {"清空", "Clear", "清空", "消去", "삭제"},
 	"b.reset":       {"清空", "Reset", "清空", "初期化", "초기화"},
-	"about":         {"ClipGlass 1.4 · 完全离线运行,不上传任何数据", "ClipGlass 1.4 · Fully offline — nothing leaves your PC", "ClipGlass 1.4 · 完全離線運作,不上傳任何資料", "ClipGlass 1.4 · 完全オフライン動作、データは送信されません", "ClipGlass 1.4 · 완전 오프라인, 데이터를 전송하지 않습니다"},
+	"about":         {"ClipGlass 1.6 · 完全离线运行,不上传任何数据", "ClipGlass 1.6 · Fully offline — nothing leaves your PC", "ClipGlass 1.6 · 完全離線運作,不上傳任何資料", "ClipGlass 1.6 · 完全オフライン動作、データは送信されません", "ClipGlass 1.6 · 완전 오프라인, 데이터를 전송하지 않습니다"},
 
 	"m.paste":  {"粘贴", "Paste", "貼上", "貼り付け", "붙여넣기"},
 	"m.copy":   {"仅复制", "Copy only", "僅複製", "コピーのみ", "복사만"},

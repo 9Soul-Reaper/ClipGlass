@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"image"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -152,12 +155,168 @@ func TestStoreSearch(t *testing.T) {
 	if v := s.View(0, ""); v[0].Text != "gamma" {
 		t.Fatal("pinned first failed")
 	}
-	if len(s.View(FilterKindBase+int(KImage), ""))+len(s.View(FilterPinned, "")) != 1 {
+	if len(s.View(FilterPinned, "")) != 1 {
 		t.Fatal("pinned filter")
-		s.AddGroup("工作")
-		s.SetItemGroup(s.Items[0].ID, 1)
-		if len(s.View(FilterGroupBase+1, "")) != 1 {
-			t.Fatal("group filter")
+	}
+	s.AddGroup("工作")
+	s.SetItemGroup(s.Items[0].ID, 1)
+	if len(s.View(FilterGroupBase+1, "")) != 1 {
+		t.Fatal("group filter")
+	}
+}
+
+func histFile(t *testing.T, dir string) string {
+	b, err := os.ReadFile(filepath.Join(dir, "history.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestSecretNeverOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	s := &Store{Dir: dir}
+	const key = "sk-proj-abcdefghijklmnopqrstuvwxyz123456"
+	s.Add(key, "Chrome") // 先作为普通文本落盘
+	s.Add("hello", "")
+	s.Save()
+	if !strings.Contains(histFile(t, dir), key) {
+		t.Fatal("setup: expected plaintext first")
+	}
+	// 再次复制同一内容,这次被识别为敏感:去重命中也必须转为仅内存并清掉磁盘明文与备份
+	it := s.AddFrom(key, "Chrome", "chrome.exe", "sec.apikey")
+	if it.Kind != KSecret || !it.Mem {
+		t.Fatal("dedupe did not convert to secret")
+	}
+	s.Save()
+	if strings.Contains(histFile(t, dir), key) {
+		t.Fatal("secret leaked into history.json")
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "history.json.bak")); err == nil && strings.Contains(string(b), key) {
+		t.Fatal("secret leaked into backup")
+	}
+	// 重启后不会回来
+	if s2 := LoadStore(dir); len(s2.Items) != 1 || s2.Items[0].Text != "hello" {
+		t.Fatalf("reload got %d items", len(LoadStore(dir).Items))
+	}
+	// 设置切到“不过滤”后再次出现:恢复为普通条目
+	it = s.AddFrom(key, "", "", "")
+	if it.Mem || it.Kind == KSecret {
+		t.Fatal("should become normal when detection off")
+	}
+	// 跳过模式:RemoveText 清掉旧明文
+	s.RemoveText(key)
+	s.Save()
+	if strings.Contains(histFile(t, dir), key) {
+		t.Fatal("RemoveText left plaintext")
+	}
+}
+
+func TestSecretExpiry(t *testing.T) {
+	s := &Store{}
+	it := s.AddFrom("sk-proj-abcdefghijklmnopqrstuvwxyz123456", "", "", "sec.apikey")
+	it.Time -= secretTTL + 5
+	s.Prune(defaultSettings())
+	if len(s.Items) != 0 {
+		t.Fatal("expired secret kept")
+	}
+}
+
+func TestCorruptRecovery(t *testing.T) {
+	dir := t.TempDir()
+	s := &Store{Dir: dir}
+	s.Add("one", "")
+	s.Save()
+	s.Add("two", "")
+	s.Save() // 第二次保存会把第一版留作 .bak
+	if err := os.WriteFile(filepath.Join(dir, "history.json"), []byte("{broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := LoadStore(dir)
+	if !r.Recovered || len(r.Items) != 1 || r.Items[0].Text != "one" {
+		t.Fatalf("recovery failed: %v %d", r.Recovered, len(r.Items))
+	}
+	if m, _ := filepath.Glob(filepath.Join(dir, "history.corrupt-*.json")); len(m) != 1 {
+		t.Fatal("corrupt copy not kept")
+	}
+}
+
+func TestLegacyArrayFormat(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "history.json"), []byte(`[{"id":1,"t":"old","k":0,"ts":1}]`), 0o600)
+	if s := LoadStore(dir); len(s.Items) != 1 || s.Items[0].Text != "old" {
+		t.Fatal("legacy format not loaded")
+	}
+}
+
+func TestEncryptionAtRest(t *testing.T) {
+	protectFn = func(b []byte) ([]byte, error) {
+		o := append([]byte{}, b...)
+		for i := range o {
+			o[i] ^= 0x5a
 		}
+		return o, nil
+	}
+	unprotectFn = protectFn
+	defer func() { protectFn, unprotectFn = nil, nil }()
+	dir := t.TempDir()
+	s := &Store{Dir: dir, Encrypt: true}
+	s.Add("top-secret-note", "")
+	img := s.AddImage(sampleImage2(), "", "")
+	s.Save()
+	if strings.Contains(histFile(t, dir), "top-secret-note") {
+		t.Fatal("history not encrypted")
+	}
+	if raw, _ := os.ReadFile(s.imgPath(img.Img)); !bytes.HasPrefix(raw, []byte(magicEnc)) {
+		t.Fatal("image not encrypted")
+	}
+	r := LoadStore(dir)
+	if len(r.Items) != 2 || r.LoadImage(r.Items[0]) == nil && r.LoadImage(r.Items[1]) == nil {
+		t.Fatal("cannot read back encrypted data")
+	}
+	// 关闭加密后重写为明文
+	r.Encrypt = false
+	r.Reseal()
+	if !strings.Contains(histFile(t, dir), "top-secret-note") {
+		t.Fatal("reseal to plaintext failed")
+	}
+}
+
+func TestBackupRoundTrip(t *testing.T) {
+	src := t.TempDir()
+	a := &Store{Dir: src}
+	a.AddGroup("工作")
+	a.Add("alpha", "")
+	a.Items[0].Group = 1
+	a.AddImage(sampleImage2(), "", "")
+	a.AddFrom("sk-proj-abcdefghijklmnopqrstuvwxyz123456", "", "", "sec.apikey") // 敏感内容不进备份
+	name, err := a.ExportBackup(defaultSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := t.TempDir()
+	b, _ := os.ReadFile(name)
+	os.WriteFile(filepath.Join(dst, "import.zip"), b, 0o600)
+	d := &Store{Dir: dst}
+	d.Add("beta", "")
+	d.Add("alpha", "") // 重复项应跳过
+	if n, err := d.PreviewImport(); err != nil || n != 1 {
+		t.Fatalf("preview n=%d err=%v", n, err)
+	}
+	n, err := d.ApplyImport()
+	if err != nil || n != 1 {
+		t.Fatalf("apply n=%d err=%v", n, err)
+	}
+	var gotImg bool
+	for _, it := range d.Items {
+		if strings.HasPrefix(it.Text, "sk-") {
+			t.Fatal("secret exported")
+		}
+		if it.Kind == KImage && d.LoadImage(it) != nil {
+			gotImg = true
+		}
+	}
+	if !gotImg || len(d.Groups) != 1 {
+		t.Fatal("image or group missing")
 	}
 }
