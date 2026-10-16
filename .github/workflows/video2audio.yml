@@ -24,6 +24,21 @@ jobs:
             echo "=== go build (windows compile check) ==="; GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null .
             echo "=== ALL OK ==="
           } 2>&1 | tee /tmp/gotest.log
+      - name: Annotate failure log
+        if: failure()
+        run: |
+          python3 - <<'PYEOF'
+          try:
+              log = open('/tmp/gotest.log').read()
+          except Exception as e:
+              log = 'no log: ' + str(e)
+          lines = log.splitlines()
+          tail = lines[-50:]
+          for i in range(0, len(tail), 15):
+              chunk = '\n'.join(tail[i:i+15]).replace('\r', '').replace('%', '%25').replace('\n', '%0A')
+              print('::error title=ci-log::' + chunk)
+          PYEOF
+
       - name: Upload test log
         if: always()
         uses: actions/upload-artifact@v4
