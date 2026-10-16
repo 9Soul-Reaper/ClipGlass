@@ -312,7 +312,7 @@ func wndProc(hwnd, m, wp, lp uintptr) (ret uintptr) {
 		}
 	case wmClose:
 		if g.running {
-			if msgBox(hwnd, "正在转换,确定要退出吗?", appTitle, mbYesNo|mbIconWarning) != idYes {
+			if msgBox(hwnd, "正在转换,确定要退出吗?", appTitle, mbYesNo|mbIconWarning) != idMsgYes {
 				return 0
 			}
 			g.cancel()

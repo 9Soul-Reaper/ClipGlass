@@ -282,10 +282,10 @@ const (
 	mbIconError       = 0x10
 	mbIconWarning     = 0x30
 	mbIconInformation = 0x40
-	idOk              = 1
-	idCancel          = 2
-	idYes             = 6
-	idNo              = 7
+	idMsgOk           = 1
+	idMsgCancel       = 2
+	idMsgYes          = 6
+	idMsgNo           = 7
 
 	ofnOverwritePrompt  = 0x00000002
 	ofnHideReadOnly     = 0x00000004
