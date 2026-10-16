@@ -1,7 +1,7 @@
 #!/bin/bash
 # 交叉编译一个"最小可用"的 Windows ffmpeg.exe(只含提取/转换音频所需的组件)。
 # 需要: mingw-w64, curl, tar, make, gcc
-set -euo pipefail
+set -euxo pipefail
 cd "$(dirname "$0")/.."   # video2audio/
 
 BUILD="$PWD/.build"
