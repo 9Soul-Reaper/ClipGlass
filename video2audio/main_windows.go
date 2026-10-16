@@ -707,14 +707,14 @@ func utf16z(parts ...string) []uint16 {
 func makeIcon() uintptr {
 	const s = 32
 	bih := bitmapInfoHeader{Size: 40, Width: s, Height: -s, Planes: 1, BitCount: 32}
-	var bits uintptr
+	var bits *byte
 	hdc := call(pGetDC, 0)
 	dib := call(pCreateDIBSection, hdc, uintptr(unsafe.Pointer(&bih)), 0, uintptr(unsafe.Pointer(&bits)), 0, 0)
 	call(pReleaseDC, 0, hdc)
-	if dib == 0 || bits == 0 {
+	if dib == 0 || bits == nil {
 		return 0
 	}
-	px := unsafe.Slice((*byte)(unsafe.Pointer(bits)), s*s*4)
+	px := unsafe.Slice(bits, s*s*4)
 	// 渐变背景
 	for y := 0; y < s; y++ {
 		for x := 0; x < s; x++ {
