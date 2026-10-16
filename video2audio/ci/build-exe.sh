@@ -1,9 +1,9 @@
 #!/bin/bash
 # 构建 Windows 单文件 VideoToAudio.exe(内嵌 ffmpeg.exe)。
-set -euo pipefail
+set -euxo pipefail
 cd "$(dirname "$0")/.."   # video2audio/
 
-mkdir -p dist embed 2>/dev/null || true
+mkdir -p dist
 
 if [ ! -f .build/ffmpeg.exe ]; then
 	echo "缺少 .build/ffmpeg.exe,请先运行 ci/build-ffmpeg.sh" >&2
