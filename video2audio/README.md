@@ -29,11 +29,11 @@
 
 ```sh
 cd video2audio
-sh build.sh            # 不内嵌 ffmpeg 的开发版
+sh build.sh            # 开发版(使用同目录或 PATH 里的 ffmpeg)
 ```
 
-单文件正式版(内嵌 ffmpeg.exe)请用 GitHub Actions 的 `VideoToAudio` 工作流构建,
-或本地执行 `ci/build-ffmpeg.sh`(需 mingw-w64)后运行 `ci/build-exe.sh`。
+单文件正式版(内嵌 ffmpeg.exe)由 GitHub Actions 的 `VideoToAudio` 工作流构建并提交到 `dist/`;
+本地交叉编译:`ci/build-ffmpeg.sh`(需 mingw-w64)后执行 `ci/build-exe.sh`。
 
 ## 技术说明
 
