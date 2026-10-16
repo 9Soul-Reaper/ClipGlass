@@ -22,11 +22,21 @@ if [ ! -f "$PREFIX_LAME/lib/libmp3lame.a" ]; then
 		curl -sL -o lame.tar.gz "https://codeload.github.com/zlargon/lame/tar.gz/refs/heads/master"
 		tar xf lame.tar.gz
 		mv lame-master lame
-		# 更新 config.guess/config.sub 以识别 x86_64-w64-mingw32
-		curl -sL -o lame/config.guess "https://raw.githubusercontent.com/gcc-mirror/gcc/master/config/config.guess"
-		curl -sL -o lame/config.sub "https://raw.githubusercontent.com/gcc-mirror/gcc/master/config/config.sub"
-		chmod +x lame/config.guess lame/config.sub
 	fi
+	# 旧版 config.guess/config.sub 无法识别 x86_64-w64-mingw32,换成系统里的现代版本
+	for d in /usr/share/misc /usr/share/automake* /usr/share/libtool/build-aux; do
+		if [ -f "$d/config.sub" ]; then cp -f "$d/config.sub" lame/config.sub; break; fi
+	done
+	for d in /usr/share/misc /usr/share/automake* /usr/share/libtool/build-aux; do
+		if [ -f "$d/config.guess" ]; then cp -f "$d/config.guess" lame/config.guess; break; fi
+	done
+	if ! lame/config.sub x86_64-w64-mingw32 >/dev/null 2>&1; then
+		echo "==> 从 savannah 更新 config.sub/config.guess"
+		curl -sL -o lame/config.sub "https://git.savannah.gnu.org/cgit/config.git/plain/config.sub"
+		curl -sL -o lame/config.guess "https://git.savannah.gnu.org/cgit/config.git/plain/config.guess"
+	fi
+	chmod +x lame/config.sub lame/config.guess
+	lame/config.sub x86_64-w64-mingw32
 	cd lame
 	echo "==> 编译 LAME (mingw 静态库)"
 	./configure --host=x86_64-w64-mingw32 --disable-shared --enable-static \
