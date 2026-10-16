@@ -1,0 +1,24 @@
+=== go version ===
+go version go1.24.13 linux/amd64
+=== go test ===
+=== RUN   TestBitrateVal
+--- PASS: TestBitrateVal (0.00s)
+=== RUN   TestCopyExt
+--- PASS: TestCopyExt (0.00s)
+=== RUN   TestParseOutTime
+--- PASS: TestParseOutTime (0.00s)
+=== RUN   TestSplitProgressLine
+--- PASS: TestSplitProgressLine (0.00s)
+=== RUN   TestBuildArgs
+--- PASS: TestBuildArgs (0.00s)
+=== RUN   TestOutPath
+--- PASS: TestOutPath (0.00s)
+=== RUN   TestSummarizeErr
+--- PASS: TestSummarizeErr (0.00s)
+PASS
+ok  	video2audio	0.002s
+=== go vet (linux) ===
+=== go vet (windows) ===
+# video2audio
+# [video2audio]
+./main_windows.go:717:29: possible misuse of unsafe.Pointer
