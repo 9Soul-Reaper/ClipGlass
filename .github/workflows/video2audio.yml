@@ -15,9 +15,22 @@ jobs:
       - name: Go test & vet
         working-directory: video2audio
         run: |
-          go test ./...
-          go vet ./...
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...
+          set -o pipefail
+          {
+            echo "=== go version ==="; go version
+            echo "=== go test ==="; go test -v ./...
+            echo "=== go vet (linux) ==="; go vet ./...
+            echo "=== go vet (windows) ==="; GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...
+            echo "=== go build (windows compile check) ==="; GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null .
+            echo "=== ALL OK ==="
+          } 2>&1 | tee /tmp/gotest.log
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: /tmp/gotest.log
+          if-no-files-found: ignore
 
   build:
     runs-on: ubuntu-latest
