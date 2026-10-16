@@ -7,11 +7,16 @@ on:
       - "video2audio/**"
       - ".github/workflows/video2audio.yml"
 
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Go test & vet
         working-directory: video2audio
         run: |
@@ -24,9 +29,18 @@ jobs:
             echo "=== go build (windows compile check) ==="; GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null .
             echo "=== ALL OK ==="
           } 2>&1 | tee /tmp/gotest.log
-      - name: Annotate failure log
+
+      - name: Publish failure log
         if: failure()
         run: |
+          cp /tmp/gotest.log video2audio/ci/last-failure.log
+          cd video2audio
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f ci/last-failure.log
+          git commit -m "ci: failure log [skip ci]" || true
+          git push origin "HEAD:${GITHUB_REF_NAME}" || true
+          # 同时输出到注解
           python3 - <<'PYEOF'
           try:
               log = open('/tmp/gotest.log').read()
@@ -39,14 +53,6 @@ jobs:
               print('::error title=ci-log::' + chunk)
           PYEOF
 
-      - name: Upload test log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-log
-          path: /tmp/gotest.log
-          if-no-files-found: ignore
-
   build:
     runs-on: ubuntu-latest
     needs: test
@@ -57,7 +63,6 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y mingw-w64
 
       - name: Cache minimal ffmpeg
-        id: cache-ffmpeg
         uses: actions/cache@v4
         with:
           path: video2audio/.build
@@ -75,3 +80,12 @@ jobs:
           name: VideoToAudio-win64
           path: video2audio/dist/
           if-no-files-found: error
+
+      - name: Commit exe to branch
+        run: |
+          cp video2audio/dist/VideoToAudio.exe video2audio/dist/VideoToAudio.exe.sha256 video2audio/dist/ 2>/dev/null || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f video2audio/dist/VideoToAudio.exe video2audio/dist/VideoToAudio.exe.sha256
+          git commit -m "build: VideoToAudio.exe [skip ci]" || echo "exe unchanged"
+          git push origin "HEAD:${GITHUB_REF_NAME}" || true
