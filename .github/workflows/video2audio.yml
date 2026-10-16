@@ -1,0 +1,49 @@
+name: VideoToAudio
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "video2audio/**"
+      - ".github/workflows/video2audio.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Go test & vet
+        working-directory: video2audio
+        run: |
+          go test ./...
+          go vet ./...
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mingw-w64
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+
+      - name: Cache minimal ffmpeg
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: video2audio/.build
+          key: ffmpeg-n7.1.5-minimal-lame-v1
+
+      - name: Build minimal ffmpeg.exe
+        run: bash video2audio/ci/build-ffmpeg.sh
+
+      - name: Build VideoToAudio.exe
+        run: bash video2audio/ci/build-exe.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VideoToAudio-win64
+          path: video2audio/dist/
+          if-no-files-found: error
