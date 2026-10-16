@@ -22,13 +22,18 @@ if [ ! -f "$PREFIX_LAME/lib/libmp3lame.a" ]; then
 		curl -sL -o lame.tar.gz "https://codeload.github.com/zlargon/lame/tar.gz/refs/heads/master"
 		tar xf lame.tar.gz
 		mv lame-master lame
+		# 更新 config.guess/config.sub 以识别 x86_64-w64-mingw32
+		curl -sL -o lame/config.guess "https://raw.githubusercontent.com/gcc-mirror/gcc/master/config/config.guess"
+		curl -sL -o lame/config.sub "https://raw.githubusercontent.com/gcc-mirror/gcc/master/config/config.sub"
+		chmod +x lame/config.guess lame/config.sub
 	fi
 	cd lame
 	echo "==> 编译 LAME (mingw 静态库)"
 	./configure --host=x86_64-w64-mingw32 --disable-shared --enable-static \
-		--disable-frontend --prefix="$PREFIX_LAME"
+		--disable-frontend --disable-gtktest --prefix="$PREFIX_LAME"
 	make -j"$(nproc)"
 	make install
+	test -f "$PREFIX_LAME/lib/libmp3lame.a"
 fi
 
 # ---- FFmpeg ----
@@ -63,7 +68,8 @@ echo "==> 配置 FFmpeg(最小音频组件集, mingw 静态)"
 	--enable-filter=aresample,anull
 
 echo "==> 编译 ffmpeg.exe"
-make -j"$(nproc)" ffmpeg
+make -j"$(nproc)"
+ls -la ffmpeg*.exe || true
 
 cp -f ffmpeg.exe "$OUT"
 echo "==> 完成: $OUT ($(du -h "$OUT" | cut -f1))"
